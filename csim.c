@@ -2,12 +2,15 @@
 #include <stdlib.h>
 #include <math.h>
 #include <stdio.h>
+#include <unistd.h>
 /*
  * David O'Keefe -- okeefed@appstate.edu
  * Steve Lewis -- lewissj@appstate.edu
  *
  */
 void getBits(int start, int end, unsigned long bits);
+int verboseFlag = 0;
+int helpFlag = 0;
 
 void getBits(int start, int end, unsigned long bits) {
     int i;
@@ -62,9 +65,31 @@ struct Cache createCache(int numSetBits, int linesPerSet, int numBlockBits) {
 
 int main(int argc, char **argv)
 {
-    int count;
-    int flag;
-    
+    int c;
+    int numSetBits, numLinesPerSet, blockOffsetBits;
+    while((c = getopt(argc, argv, "h::v::s:E:b:t:")) != -1) {
+        switch(c) {
+            case 'h': 
+            helpFlag = 1;
+            break;
+            case 'v':
+            verboseFlag = 1; 
+            break;
+            case 's':
+            numSetBits = optarg;
+            break;
+            case 'E':
+            numLinesPerSet = optarg;
+            break;
+            case 'b':
+            blockOffsetBits = optarg;
+            break;
+            case 't':
+            //?
+            break;
+        }
+   struct Cache cache = createCache(numSetBits, linesPerSet, numBlockBits);
+   /* 
     if (argc < 8) {
         printf("Error\n");
         printf("Usage: ./csim-ref [-h] [-v] -s <s> -E <E> -b <b> -t <tracefile>");
@@ -76,7 +101,7 @@ int main(int argc, char **argv)
                 flag = argv[count][1];    
             }
         }
-    }
+    }*/
     printSummary(0, 0, 0);
     return 0;
 }

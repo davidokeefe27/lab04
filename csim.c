@@ -12,10 +12,11 @@
  *
  */
 //Function Declarations
-int parseCommandLine(int argc, char **argv, int *cache_s, int *cache_E, int *cache_b, char *trace, int *vflag);
+int parseCommandLine(int argc, char **argv, int *cache_s, int *cache_E, int *cache_b, char **trace, int *vflag);
 uint64_t getBits(int start, int end, unsigned long bits);
 void errorMessage();
 struct Cache *createCache(struct Cache *c, int numSetBits, int linesPerSet, int numBlockBits);
+int parseTraceFile(FILE * pf, char ** trace, struct Cache *cache);
 
 //Global Variable(s)
 int verboseFlag = 0;
@@ -74,19 +75,19 @@ struct Cache *createCache(struct Cache *c, int numSetBits, int linesPerSet, int 
     return c;
 }
 
-int parseTraceFile(FILE * pf, char * trace, struct Cache *cache) {
+int parseTraceFile(FILE * pf, char ** trace, struct Cache *cache) {
     int i;
     char buf[80];
     uint64_t address;
     char option;
     int size;
-    int setNum, tag, blockNum;
+    int setNum, tag;     //blockNum;
     int setStartIndex = cache->numBlockBits + cache->numSetBits;
     int hit_count = 0;
     int miss_count = 0;
     int eviction_count = 0;
 
-    pf = fopen(trace, "r");
+    pf = fopen(*trace, "r");
     if(!pf) {
         printf("Can't open trace file");
         return -1;
@@ -95,7 +96,7 @@ int parseTraceFile(FILE * pf, char * trace, struct Cache *cache) {
         if(buf[0] != ' ') {         //If the line begins with a space, we don't ignore it.
             sscanf(buf, "%c, %lu, %d", &option, &address, &size);
         }
-        blockNum = getBits(cache->numBlockBits, 63, address);
+        //blockNum = getBits(cache->numBlockBits, 63, address);
         setNum = getBits(setStartIndex, cache->numBlockBits + 1, address);
         tag = getBits(0, cache->numTagBits, address);
         for(i = 0; i < cache->linesPerSet; i++) {
@@ -115,12 +116,20 @@ int parseTraceFile(FILE * pf, char * trace, struct Cache *cache) {
                 }
             }
         }
+        eviction_count++;
+        for(i = 0; i < cache->linesPerSet; i++) {
+            if(cache->tags[setNum][i] == tag) {
+                if(option == 'M') {
+                    hit_count++;
+                }
+            }
+        }
     }
     return 0;
 
 }
 
-int parseCommandLine(int argc, char **argv, int *cache_s, int *cache_E, int *cache_b, char *trace, int *vflag) {
+int parseCommandLine(int argc, char **argv, int *cache_s, int *cache_E, int *cache_b, char **trace, int *vflag) {
     int c;
     int argCount = 0;
     while((c = getopt(argc, argv, "h::v::s:E:b:t:")) != -1) {
@@ -145,7 +154,7 @@ int parseCommandLine(int argc, char **argv, int *cache_s, int *cache_E, int *cac
                 break;
             case 't':
                 argCount++;
-                strcpy(trace, optarg);
+                strcpy(*trace, optarg);
                 break;
             default:
                 errorMessage();
@@ -170,7 +179,12 @@ int main(int argc, char **argv)
     int hit_count = 0;
     int miss_count = 0;
     int eviction_count = 0;
+    FILE pf;
+    char *trace = malloc(20);
+    int vflag;
+    parseCommandLine(argc, argv, &numSetBits, &numLinesPerSet, &blockOffsetBits, &trace, &vflag);
     cacheP = createCache(cacheP, numSetBits, numLinesPerSet, blockOffsetBits);
+    parseTraceFile(&pf, &trace, cacheP);
     printSummary(hit_count, miss_count, eviction_count);
     return 0;
 }

@@ -2,20 +2,34 @@
 #include <stdlib.h>
 #include <math.h>
 #include <stdio.h>
+#include <stdint.h>
 #include <unistd.h>
+#include <getopt.h>
+#include <string.h>
 /*
  * David O'Keefe -- okeefed@appstate.edu
  * Steve Lewis -- lewissj@appstate.edu
  *
  */
-void getBits(int start, int end, unsigned long bits);
+//Function Declarations
+int parseCommandLine(int argc, char **argv, int *cache_s, int *cache_E, int *cache_b, char *trace, int *vflag);
+uint64_t getBits(int start, int end, unsigned long bits);
+void errorMessage();
+struct Cache *createCache(struct Cache *c, int numSetBits, int linesPerSet, int numBlockBits);
+
+//Global Variable(s)
 int verboseFlag = 0;
 int helpFlag = 0;
 
-void getBits(int start, int end, unsigned long bits) {
+void errorMessage() { 
+    printf("Error\n");
+    printf("Usage: ./csim-ref [-h] [-v] -s <s> -E <E> -b <b> -t <tracefile>");
+}
+
+uint64_t getBits(int start, int end, unsigned long bits) {
     int i;
     unsigned long mask = 0UL;
-    if(start < 64 && start >= 0 && end < 64 && end > 0) {
+    if(start < 64 && start >= 0 && end < 64 && end >= 0) {
         int diff = end - start;
         for (i = 0; i < diff; i++) {
             mask <<= 1;
@@ -23,11 +37,11 @@ void getBits(int start, int end, unsigned long bits) {
         }
         mask <<= start;
         bits &= mask; 
+        return bits;
     }
     else {
-        printf("Error\n");
-        printf("Usage: ./csim-ref [-h] [-v] -s <s> -E <E> -b <b> -t <tracefile>");
-        exit(1);
+        errorMessage();
+        exit(-1);
     }
 }
 
@@ -41,67 +55,122 @@ struct Cache {
     unsigned long int **tags;
 };
 
-struct Cache createCache(int numSetBits, int linesPerSet, int numBlockBits) {
+struct Cache *createCache(struct Cache *c, int numSetBits, int linesPerSet, int numBlockBits) {
     int i, j;
-    struct Cache c;
-    c.numSetBits = numSetBits;
-    c.numSets = pow(2, numSetBits);
-    c.linesPerSet = linesPerSet;
-    c.numBlockBits = numBlockBits;
-    c.blockSize = pow(2, numBlockBits);
-    c.numTagBits = 63 - numSetBits - numBlockBits;
-    c.tags = malloc(c.numSets * c.linesPerSet * sizeof(unsigned long int));
+    c->numSetBits = numSetBits;
+    c->numSets = (2 << numSetBits);
+    c->linesPerSet = linesPerSet;
+    c->numBlockBits = numBlockBits;
+    c->blockSize = (2 << numBlockBits);
+    c->numTagBits = 63 - numSetBits - numBlockBits;
+    c->tags = malloc(c->numSets * c->linesPerSet * sizeof(unsigned long int));
     //initialize tags to -1
-    for (i = 0; i < c.numSets; i++) {
-        for(j = 0; j < c.linesPerSet; j++) {
-            c.tags[i][j] = -1;
+    for (i = 0; i < c->numSets; i++) {
+        for(j = 0; j < c->linesPerSet; j++) {
+            c->tags[i][j] = -1;
         }
     }
     
     return c;
 }
 
+int parseTraceFile(FILE * pf, char * trace, struct Cache *cache) {
+    int i;
+    char buf[80];
+    uint64_t address;
+    char option;
+    int size;
+    int setNum, tag, blockNum;
+    int setStartIndex = cache->numBlockBits + cache->numSetBits;
+    int hit_count = 0;
+    int miss_count = 0;
+    int eviction_count = 0;
 
+    pf = fopen(trace, "r");
+    if(!pf) {
+        printf("Can't open trace file");
+        return -1;
+    }
+    while(fgets(buf, 80, pf) != NULL) {
+        if(buf[0] != ' ') {         //If the line begins with a space, we don't ignore it.
+            sscanf(buf, "%c, %lu, %d", &option, &address, &size);
+        }
+        blockNum = getBits(cache->numBlockBits, 63, address);
+        setNum = getBits(setStartIndex, cache->numBlockBits + 1, address);
+        tag = getBits(0, cache->numTagBits, address);
+        for(i = 0; i < cache->linesPerSet; i++) {
+           if(cache->tags[setNum][i] != 1 && tag == cache->tags[setNum][i]) {     //If it is valid and matches the tag
+                if (option == 'M') {
+                   hit_count += 2;
+                }
+                else hit_count++;
+           }
+        }
+        miss_count++;
+        for(i = 0; i < cache->linesPerSet; i++) {
+            if(cache->tags[setNum][i] == -1) {
+                cache->tags[setNum][i] = tag;
+                if(option == 'M') {
+                    hit_count++;
+                }
+            }
+        }
+    }
+    return 0;
 
-int main(int argc, char **argv)
-{
+}
+
+int parseCommandLine(int argc, char **argv, int *cache_s, int *cache_E, int *cache_b, char *trace, int *vflag) {
     int c;
-    int numSetBits, numLinesPerSet, blockOffsetBits;
+    int argCount = 0;
     while((c = getopt(argc, argv, "h::v::s:E:b:t:")) != -1) {
         switch(c) {
             case 'h': 
-            helpFlag = 1;
-            break;
+                helpFlag = 1;
+                break;
             case 'v':
-            verboseFlag = 1; 
-            break;
+                verboseFlag = 1; 
+                break;
             case 's':
-            numSetBits = optarg;
-            break;
+                argCount++;
+                *cache_s = atoi(optarg);
+                break;
             case 'E':
-            numLinesPerSet = optarg;
-            break;
+                argCount++;
+                *cache_E = atoi(optarg);
+                break;
             case 'b':
-            blockOffsetBits = optarg;
-            break;
+                argCount++;
+                *cache_b = atoi(optarg);
+                break;
             case 't':
-            //?
-            break;
+                argCount++;
+                strcpy(trace, optarg);
+                break;
+            default:
+                errorMessage();
+                exit(-1);
+                break;
         }
-   struct Cache cache = createCache(numSetBits, linesPerSet, numBlockBits);
-   /* 
-    if (argc < 8) {
-        printf("Error\n");
-        printf("Usage: ./csim-ref [-h] [-v] -s <s> -E <E> -b <b> -t <tracefile>");
-        exit(1);
     }
-    else {
-        for(count = 1; count < argc; count++) {
-            if(argv[count][0].charAt(0) == '-') { 
-                flag = argv[count][1];    
-            }
-        }
-    }*/
-    printSummary(0, 0, 0);
+    if (argCount < 4) {
+        errorMessage();
+        exit(-1);
+    }
+    return 0;
+}
+
+int main(int argc, char **argv)
+{
+    int numSetBits = 0;
+    int numLinesPerSet = 0;
+    int blockOffsetBits = 0;
+    struct Cache cache;
+    struct Cache *cacheP = &cache;
+    int hit_count = 0;
+    int miss_count = 0;
+    int eviction_count = 0;
+    cacheP = createCache(cacheP, numSetBits, numLinesPerSet, blockOffsetBits);
+    printSummary(hit_count, miss_count, eviction_count);
     return 0;
 }

@@ -28,7 +28,7 @@ uint64_t getBits(int start, int end, unsigned long bits);
 void errorMessage();
 void createCache(struct Cache *c, int numSetBits, int linesPerSet, int numBlockBits);
 int parseTraceFile(FILE * pf, char ** trace, struct Cache *cache, int * h_c, int * m_c, int * e_c);
-void insertAndAdjustLRU(struct Cache * cache, int tag, int setNum);
+void insertAndAdjustLRU(struct Cache * cache, unsigned long tag, int setNum);
 
 //Global Variable(s)
 int verboseFlag = 0;
@@ -36,7 +36,7 @@ int helpFlag = 0;
 
 void errorMessage() { 
     printf("Error\n");
-    printf("Usage: ./csim-ref [-h] [-v] -s <s> -E <E> -b <b> -t <tracefile>");
+    printf("Usage: ./csim-ref [-h] [-v] -s <s> -E <E> -b <b> -t <tracefile>\n");
 }
 
 /*
@@ -61,6 +61,7 @@ uint64_t getBits(int start, int end, unsigned long address) {
     }
     else {
         errorMessage();
+        printf("getBits\n");
         exit(-1);
     }
 }
@@ -100,7 +101,7 @@ void createCache(struct Cache *c, int numSetBits, int linesPerSet, int numBlockB
  *  Params: cache pointer, tag number, set number
  *
  */
-void insertAndAdjustLRU(struct Cache * cache, int tag, int setNum) {
+void insertAndAdjustLRU(struct Cache * cache, unsigned long tag, int setNum) {
     int i;
     //iterate through the lines in the set and move them all down 1
     for(i = cache->linesPerSet - 1; i > 1; i--) {
@@ -122,13 +123,13 @@ int parseTraceFile(FILE * pf, char ** traceFile, struct Cache * cache, int * h_c
     char buf[80];
     uint64_t address;
     char option;
-    int size;
-    int setNum, tag;
+    int size, setNum;
+    unsigned long tag;
     int setStartIndex = cache->numBlockBits + cache->numSetBits;
 
     pf = fopen(* traceFile, "r");
     if(!pf) {
-        printf("Can't open trace file");
+        printf("Can't open trace file\n");
         return -1;
     }
     while(fgets(buf, 80, pf) != NULL) {
@@ -211,12 +212,14 @@ int parseCommandLine(int argc, char ** argv, int * cache_s, int * cache_E, int *
                 break;
             default:
                 errorMessage();
+                printf("default in switch statement in parseCommandLine\n");
                 exit(-1);
                 break;
         }
     }
     if (argCount < 4) {
         errorMessage();
+        printf("argCount too low\nArgCount = %d\n", argCount);
         exit(-1);
     }
     return 0;

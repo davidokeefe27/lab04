@@ -6,6 +6,7 @@
 #include <unistd.h>
 #include <getopt.h>
 #include <string.h>
+
 /*
  * David O'Keefe -- okeefed@appstate.edu
  * Steve Lewis -- lewissj@appstate.edu
@@ -29,6 +30,10 @@ void errorMessage();
 Cache * createCache(int numSetBits, int linesPerSet, int numBlockBits);
 int parseTraceFile(FILE * pf, char ** trace, Cache *cache, int * h_c, int * m_c, int * e_c);
 void insertAndAdjustLRU(Cache * cache, unsigned long int tag, int setNum);
+//int processM(unsigned long int, int, int, Cache *);
+//int processLS(unsigned long int, int, int, Cache *);
+int findDuplicateTag(Cache * cache, int tag, int setNum);
+int findEmptyLine(Cache * cache, int setNum);
 
 //Global Variable(s)
 int verboseFlag = 0;
@@ -39,6 +44,63 @@ void errorMessage() {
     printf("Usage: ./csim-ref [-h] [-v] -s <s> -E <E> -b <b> -t <tracefile>\n");
 }
 
+/*
+ * Scans every line in a particular set of the cache.
+ * Finds whether a tag is already present in the cache.
+ *
+ * Params: cache pointer, tag, set number.
+ * Returns: index of matched tag if a match is found. -1 if tag is not already present.
+ */
+int findDuplicateTag(Cache * cache, int tag, int setNum) {
+    int i;
+    for(i = 0; i < cache->linesPerSet; i++) {
+        if(cache->tags[setNum][i] == tag) {
+            return i;
+        }
+    }
+    return -1;
+}
+/*
+ * Scans every line in a set and returns the line index number if one is found.
+ *
+ * Params:  cache pointer, set Number to iterate through
+ * Returns: -1 if no line is empty.
+ *          Line index if empty line is found.
+ */
+int findEmptyLine(Cache * cache, int setNum) {
+    int i;
+    for(i = 0; i < cache->linesPerSet; i++) {
+        if(cache->tags[setNum][i] == -1) return i;
+    }
+    return -1;
+}
+/*
+int processM(unsigned long int address, int startIndex, int endIndex, Cache * cache) {
+    int setNum, i;
+    int numHits = 0;
+    unsigned long int tag;
+    tag = getBits(startIndex, endIndex, address);
+    for(i = 0; i < cache->linesPerSet; i++) {
+        if(cache->tags[setNum][i] != -1 && cache->tags[setNum][i] == tag) {
+            numHits++;
+            insertAndAdjustLRU(cache, tag, setNum);
+        }
+    }
+    for(i = 0; i < cache->linesPerSet; i++) {
+        if(cache->tags[setNum][i] == tag) {
+            numHits++;
+        }
+    }
+    return numHits;
+}
+
+int processLS(unsigned long int address, int startIndex, int endIndex, Cache * cache) {
+    int setNum, i;
+    int numHits = 0;
+    unsigned long int tag;
+    tag = getBits(startIndex, endIndex, address);
+}
+*/
 /*
  * function for getting the bits from the start to the end of an unsigned long int
  *
@@ -78,10 +140,10 @@ Cache * createCache(int numSetBits, int linesPerSet, int numBlockBits) {
     Cache * c_ptr = malloc(sizeof(* c_ptr));
     if(c_ptr != NULL) {
         c_ptr->numSetBits = numSetBits;
-        c_ptr->numSets = (2 << numSetBits);
+        c_ptr->numSets = (int)pow(2, numSetBits);
         c_ptr->linesPerSet = linesPerSet;
         c_ptr->numBlockBits = numBlockBits;
-        c_ptr->blockSize = (2 << numBlockBits);
+        c_ptr->blockSize = (int)pow(2, numBlockBits);
         c_ptr->numTagBits = 63 - numSetBits - numBlockBits;
         //allocate memory for the 2D tags array
         c_ptr->tags = malloc(c_ptr->numSets * linesPerSet * sizeof(unsigned long int));
@@ -95,12 +157,6 @@ Cache * createCache(int numSetBits, int linesPerSet, int numBlockBits) {
                 c_ptr->tags[i][j] = -1;
             }
         }
-        /*
-        for (i = 0; i < c_ptr->numSets; i++) {
-            for(j = 0; j < linesPerSet; j++) {
-              c_ptr->tags[i][j] = -1;
-            }
-        } */  
     }
     return c_ptr;    
 }
@@ -118,11 +174,26 @@ Cache * createCache(int numSetBits, int linesPerSet, int numBlockBits) {
  */
 void insertAndAdjustLRU(Cache * cache, unsigned long int tag, int setNum) {
     int i;
-    //iterate through the lines in the set and move them all down 1
-    for(i = cache->linesPerSet - 1; i > 1; i--) {
-        cache->tags[setNum][i] = cache->tags[setNum][i - 1]; 
+    int index;
+    index = findDuplicateTag(cache, tag, setNum);
+
+    //if the findDuplicateTag does not find an identical tag in the set
+    if(index == -1) {
+        //iterate through the lines in the set and move them all down 1
+        for(i = cache->linesPerSet - 1; i > 1; i--) {
+            cache->tags[setNum][i] = cache->tags[setNum][i - 1]; 
+        }
+        //then set the most recently used index of the array to the new tag
+        cache->tags[setNum][0] = tag;
     }
-    cache->tags[setNum][0] = tag;    
+    //else the tag was already present. just need to move the tag to the 
+    //front of the array and move everything else down.
+    else {
+        for(i = index; i > 1; i--) {
+            cache->tags[setNum][i] = cache->tags[setNum][i-1];
+        }
+        cache->tags[setNum][0] = tag;    
+    }   
 }
 
 /*
@@ -136,11 +207,11 @@ void insertAndAdjustLRU(Cache * cache, unsigned long int tag, int setNum) {
 int parseTraceFile(FILE * pf, char ** traceFile, Cache * cache, int * h_c, int * m_c, int * e_c) {
     int i;
     char buf[80];
-    uint64_t address;
+    unsigned long int address;
     char option;
     int size, setNum;
     unsigned long int tag;
-    int setStartIndex = cache->numBlockBits + cache->numSetBits;
+    int setEndBit = cache->numBlockBits + cache->numSetBits;
 
     pf = fopen(* traceFile, "r");
     if(!pf) {
@@ -148,16 +219,22 @@ int parseTraceFile(FILE * pf, char ** traceFile, Cache * cache, int * h_c, int *
         return -1;
     }
     while(fgets(buf, 80, pf) != NULL) {
-        if(buf[0] != ' ') {         //If the line begins with a space, we don't ignore it.
-            sscanf(buf, "%c, %lu, %d", &option, &address, &size);
+        if(buf[0] == ' ') {         //If the line begins with a space, we don't ignore it.
+            sscanf(buf, " %c %lu,%d", &option, &address, &size);
         }
-        setNum = getBits(setStartIndex, cache->numBlockBits + 1, address);
-        tag = getBits(0, cache->numTagBits, address);
+        printf("%s", buf);
+        setNum = getBits(cache->numBlockBits, setEndBit - 1, address);
+        tag = getBits(setEndBit, 63, address);
+        printf("numBlockBits: %d, setEndBit: %d, address: %lu\n", cache->numBlockBits, setEndBit, address);
+        printf("numTagBits: %d\n", cache->numTagBits);
+        printf("tag: %lu\n", tag);
+        printf("setNum: %d\n", setNum);
+        printf("option: %c\n", option);
         for(i = 0; i < cache->linesPerSet; i++) {
            printf("first for loop\n");
-           if(cache->tags[setNum][i] != 1 && tag == cache->tags[setNum][i]) { //If it is valid and matches the tag
+           if(tag == cache->tags[setNum][i]) { //If it is valid and matches the tag
                printf("1\n");
-               printf("%c\n", option);
+               printf("option: %c\n", option);
                 if (option == 'M') {
                    *h_c = *h_c + 2;
                 }
@@ -253,7 +330,6 @@ int main(int argc, char **argv)
     int blockOffsetBits = 0;
     Cache cache;
     Cache * cacheP = &cache;
-    //struct Cache * cacheP = &cache;
     int hit_count = 0;
     int miss_count = 0;
     int eviction_count = 0;
